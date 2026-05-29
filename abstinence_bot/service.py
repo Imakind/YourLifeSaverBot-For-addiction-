@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from random import choice
 from typing import Iterable
 
@@ -118,6 +118,24 @@ class AbstinenceService:
             )
             conn.execute("DELETE FROM sent_milestones WHERE chat_id=? AND user_id=?", (chat_id, user_id))
         return current.current_days
+
+    def set_current_day(self, chat_id: int, user_id: int, days: int, now: datetime | None = None) -> None:
+        if days < 0 or days > 10000:
+            raise ValueError("days must be between 0 and 10000")
+        now = now or utcnow()
+        started_at = now - timedelta(days=days)
+        current = self.stats(chat_id, user_id, now)
+        best_days = max(current.best_days if current else 0, days)
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                UPDATE streaks
+                SET started_at=?, best_days=?, updated_at=?
+                WHERE chat_id=? AND user_id=?
+                """,
+                (iso(started_at), best_days, iso(now), chat_id, user_id),
+            )
+            conn.execute("DELETE FROM sent_milestones WHERE chat_id=? AND user_id=?", (chat_id, user_id))
 
     def add_note(self, chat_id: int, user_id: int, body: str, now: datetime | None = None) -> int:
         now = now or utcnow()

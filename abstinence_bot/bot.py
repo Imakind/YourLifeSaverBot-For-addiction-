@@ -126,6 +126,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Бот трекинга воздержания для чата.\n\n"
         "Основное:\n"
         "/status - streak, рекорд, среднее\n"
+        "/setday N - выставить текущий день, например /setday 12\n"
         "/reset причина - сброс с причиной\n"
         "/note текст - заметка на текущий день\n"
         "/history - срывы и заметки\n"
@@ -148,6 +149,24 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await ensure_registered(update, context)
     stats = service(context).stats(update.effective_chat.id, update.effective_user.id)
     await update.effective_message.reply_text(format_status(stats), reply_markup=keyboard())
+
+
+async def setday(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await ensure_registered(update, context)
+    raw = context.args[0] if context.args else ""
+    if not raw.isdigit():
+        await update.effective_message.reply_text("Формат: /setday 12")
+        return
+    days = int(raw)
+    try:
+        service(context).set_current_day(update.effective_chat.id, update.effective_user.id, days)
+    except ValueError:
+        await update.effective_message.reply_text("День должен быть от 0 до 10000.")
+        return
+    await update.effective_message.reply_text(
+        f"Текущий streak выставлен: {days} дн.",
+        reply_markup=main_menu_keyboard(),
+    )
 
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -384,6 +403,7 @@ async def setup_bot_menu(app: Application) -> None:
     commands = [
         BotCommand("menu", "главное меню"),
         BotCommand("status", "streak, рекорд, среднее"),
+        BotCommand("setday", "выставить текущий день"),
         BotCommand("history", "история срывов и заметок"),
         BotCommand("note", "заметка на текущий день"),
         BotCommand("reset", "сброс streak с причиной"),
@@ -404,6 +424,7 @@ def build_application(token: str, db_path: str, tz_name: str, morning: str, even
     app.add_handler(CommandHandler(["start", "join"], start))
     app.add_handler(CommandHandler("menu", menu))
     app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("setday", setday))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("note", note))
     app.add_handler(CommandHandler("history", history))

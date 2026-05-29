@@ -53,6 +53,18 @@ def test_notes_are_saved_for_current_day(tmp_path):
     assert notes[0]["body"] == "walked outside"
 
 
+def test_set_current_day_adjusts_started_at_and_best(tmp_path):
+    svc = make_service(tmp_path)
+    svc.upsert_user(1, "alice", "Alice", None)
+    svc.join_chat(100, 1)
+
+    svc.set_current_day(100, 1, 12, fixed(20))
+
+    stats = svc.stats(100, 1, fixed(20))
+    assert stats.current_days == 12
+    assert stats.best_days == 12
+
+
 def test_top_and_milestones(tmp_path):
     svc = make_service(tmp_path)
     for user_id, username in [(1, "alice"), (2, "bob")]:

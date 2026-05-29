@@ -112,6 +112,7 @@ def start_text() -> str:
         "Главное:\n"
         "/menu - меню\n"
         "/status - streak, рекорд, среднее\n"
+        "/setday N - выставить текущий день, например /setday 12\n"
         "/history - срывы и заметки\n"
         "/reset причина - сброс с причиной\n"
         "/note текст - заметка на текущий день\n"
@@ -135,6 +136,17 @@ def handle_command(store: DynamoStore, tg: TelegramClient, message: dict[str, An
     elif command == "status":
         stats = store.stats(chat_id, user["id"])
         tg.send_message(chat_id, format_status(stats), menu_keyboard())
+    elif command == "setday":
+        if not arg.isdigit():
+            tg.send_message(chat_id, "Формат: /setday 12")
+            return
+        days = int(arg)
+        try:
+            store.set_current_day(chat_id, user["id"], days)
+        except ValueError:
+            tg.send_message(chat_id, "День должен быть от 0 до 10000.")
+            return
+        tg.send_message(chat_id, f"Текущий streak выставлен: {days} дн.", menu_keyboard())
     elif command == "reset":
         if not arg:
             tg.send_message(chat_id, "Укажи причину: /reset стресс, ночь, телефон в кровати")

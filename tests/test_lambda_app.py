@@ -29,6 +29,9 @@ class FakeStore:
     def stats(self, chat_id, user_id):
         return FakeStats()
 
+    def set_current_day(self, chat_id, user_id, days):
+        self.current_day = (chat_id, user_id, days)
+
     def add_advice(self, chat_id, user_id, body):
         self.advices.append((chat_id, user_id, body))
 
@@ -88,6 +91,16 @@ def test_advice_command_saves_user_advice():
 
     assert store.advices == [(100, 1, "Leave the room")]
     assert tg.messages[-1]["text"] == "Leave the room"
+
+
+def test_setday_command_sets_current_day():
+    store = FakeStore()
+    tg = FakeTelegram()
+
+    handle_command(store, tg, message("/setday 12"))
+
+    assert store.current_day == (100, 1, 12)
+    assert tg.messages[-1]["text"] == "Текущий streak выставлен: 12 дн."
 
 
 def test_history_callback_answers_and_sends_history():

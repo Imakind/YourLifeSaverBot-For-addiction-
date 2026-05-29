@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from random import choice
 from typing import Any
 
@@ -158,6 +158,25 @@ class DynamoStore:
         )
         self.clear_milestones(chat_id, user_id)
         return current.current_days
+
+    def set_current_day(self, chat_id: int, user_id: int, days: int, now: datetime | None = None) -> None:
+        if days < 0 or days > 10000:
+            raise ValueError("days must be between 0 and 10000")
+        now = now or utcnow()
+        current = self.stats(chat_id, user_id, now)
+        if current is None:
+            raise ValueError("user is not registered")
+        started_at = now - timedelta(days=days)
+        self.table.update_item(
+            Key={"PK": self.chat_pk(chat_id), "SK": self.user_sk(user_id)},
+            UpdateExpression="SET started_at=:started_at, best_days=:best_days, updated_at=:updated_at",
+            ExpressionAttributeValues={
+                ":started_at": iso(started_at),
+                ":best_days": max(current.best_days, days),
+                ":updated_at": iso(now),
+            },
+        )
+        self.clear_milestones(chat_id, user_id)
 
     def add_note(self, chat_id: int, user_id: int, body: str, now: datetime | None = None) -> int:
         now = now or utcnow()
