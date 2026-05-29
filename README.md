@@ -96,3 +96,5 @@ BOT_TOKEN=your_telegram_bot_token
 ```
 
 Для сохранения SQLite между рестартами нужен persistent disk. В `render.yaml` база настроена на `/data/bot.sqlite3`. По документации Render persistent disk доступен для платных worker-сервисов; без диска файловая система будет временной.
+
+Если нужен именно бесплатный вариант, см. [DEPLOY_FREE.md](DEPLOY_FREE.md). Рекомендуемый вариант без переписывания архитектуры - Oracle Cloud Always Free VM + Docker Compose.
