@@ -65,7 +65,6 @@ class DynamoStore:
         now = iso(utcnow())
         item = self.get_user_item(chat_id, int(user["id"]))
         values = {
-            ":type": "member",
             ":active": 1,
             ":partner_opt_in": 1,
             ":username": user.get("username"),
