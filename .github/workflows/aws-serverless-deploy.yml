@@ -1,0 +1,73 @@
+name: Deploy AWS Serverless
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws_region:
+        description: AWS region
+        required: true
+        default: us-east-1
+      stack_name:
+        description: CloudFormation stack name
+        required: true
+        default: your-life-saver-bot
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Validate template
+        run: sam validate --lint
+
+      - name: Build
+        run: sam build --use-container
+
+      - name: Deploy
+        run: >
+          sam deploy
+          --stack-name "${{ inputs.stack_name }}"
+          --region "${{ inputs.aws_region }}"
+          --resolve-s3
+          --no-confirm-changeset
+          --no-fail-on-empty-changeset
+          --capabilities CAPABILITY_IAM
+          --parameter-overrides
+          BotToken="${{ secrets.BOT_TOKEN }}"
+          WebhookSecret="${{ secrets.WEBHOOK_SECRET }}"
+
+      - name: Read webhook URL
+        id: outputs
+        run: |
+          WEBHOOK_URL=$(aws cloudformation describe-stacks \
+            --stack-name "${{ inputs.stack_name }}" \
+            --region "${{ inputs.aws_region }}" \
+            --query "Stacks[0].Outputs[?OutputKey=='TelegramWebhookUrl'].OutputValue" \
+            --output text)
+          echo "webhook_url=$WEBHOOK_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Set Telegram webhook
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          WEBHOOK_URL: ${{ steps.outputs.outputs.webhook_url }}
+        run: python scripts/set_webhook.py

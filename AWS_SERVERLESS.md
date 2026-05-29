@@ -35,6 +35,29 @@ SQLite в serverless-режиме не используется.
 
 ## Деплой
 
+### Вариант 1: GitHub Actions
+
+В GitHub repo открой `Settings -> Secrets and variables -> Actions` и добавь secrets:
+
+```text
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+BOT_TOKEN
+WEBHOOK_SECRET
+```
+
+Потом открой `Actions -> Deploy AWS Serverless -> Run workflow`.
+
+Workflow:
+
+- валидирует `template.yaml`;
+- собирает SAM;
+- деплоит CloudFormation stack;
+- берёт `TelegramWebhookUrl` из output;
+- вызывает `scripts/set_webhook.py`.
+
+### Вариант 2: локально через SAM CLI
+
 1. Настроить AWS CLI:
 
 ```bash
