@@ -30,7 +30,7 @@ SQLite в serverless-режиме не используется.
 - AWS account.
 - AWS CLI.
 - AWS SAM CLI.
-- Python 3.12 для локальной сборки SAM.
+- Python 3.13 для локальной сборки SAM.
 - Новый Telegram token из BotFather.
 
 ## Деплой
