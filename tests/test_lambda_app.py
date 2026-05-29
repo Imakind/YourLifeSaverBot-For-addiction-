@@ -22,6 +22,7 @@ class FakeStore:
     def __init__(self) -> None:
         self.users = []
         self.advices = []
+        self.setday_used = False
 
     def upsert_user(self, chat_id, user):
         self.users.append((chat_id, user))
@@ -30,6 +31,9 @@ class FakeStore:
         return FakeStats()
 
     def set_current_day(self, chat_id, user_id, days):
+        if self.setday_used:
+            raise PermissionError("setday can be used only once")
+        self.setday_used = True
         self.current_day = (chat_id, user_id, days)
 
     def add_advice(self, chat_id, user_id, body):
@@ -101,6 +105,17 @@ def test_setday_command_sets_current_day():
 
     assert store.current_day == (100, 1, 12)
     assert tg.messages[-1]["text"] == "Текущий streak выставлен: 12 дн."
+
+
+def test_setday_command_rejects_second_use():
+    store = FakeStore()
+    tg = FakeTelegram()
+
+    handle_command(store, tg, message("/setday 12"))
+    handle_command(store, tg, message("/setday 8"))
+
+    assert store.current_day == (100, 1, 12)
+    assert tg.messages[-1]["text"] == "Текущий день уже был выставлен. /setday можно использовать только один раз."
 
 
 def test_history_callback_answers_and_sends_history():

@@ -160,6 +160,9 @@ async def setday(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     days = int(raw)
     try:
         service(context).set_current_day(update.effective_chat.id, update.effective_user.id, days)
+    except PermissionError:
+        await update.effective_message.reply_text("Текущий день уже был выставлен. /setday можно использовать только один раз.")
+        return
     except ValueError:
         await update.effective_message.reply_text("День должен быть от 0 до 10000.")
         return

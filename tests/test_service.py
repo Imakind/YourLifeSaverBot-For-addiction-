@@ -65,6 +65,22 @@ def test_set_current_day_adjusts_started_at_and_best(tmp_path):
     assert stats.best_days == 12
 
 
+def test_set_current_day_can_be_used_only_once(tmp_path):
+    svc = make_service(tmp_path)
+    svc.upsert_user(1, "alice", "Alice", None)
+    svc.join_chat(100, 1)
+    svc.set_current_day(100, 1, 12, fixed(20))
+
+    try:
+        svc.set_current_day(100, 1, 8, fixed(20))
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("second set_current_day must fail")
+
+    assert svc.stats(100, 1, fixed(20)).current_days == 12
+
+
 def test_top_and_milestones(tmp_path):
     svc = make_service(tmp_path)
     for user_id, username in [(1, "alice"), (2, "bob")]:

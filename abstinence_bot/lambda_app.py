@@ -143,6 +143,9 @@ def handle_command(store: DynamoStore, tg: TelegramClient, message: dict[str, An
         days = int(arg)
         try:
             store.set_current_day(chat_id, user["id"], days)
+        except PermissionError:
+            tg.send_message(chat_id, "Текущий день уже был выставлен. /setday можно использовать только один раз.")
+            return
         except ValueError:
             tg.send_message(chat_id, "День должен быть от 0 до 10000.")
             return

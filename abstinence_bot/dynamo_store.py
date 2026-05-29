@@ -90,6 +90,7 @@ class DynamoStore:
                     "best_days": 0,
                     "total_completed_days": 0,
                     "completed_streaks": 0,
+                    "setday_used": 0,
                     "created_at": now,
                     "updated_at": now,
                 }
@@ -102,7 +103,8 @@ class DynamoStore:
                 "username=:username, first_name=:first_name, last_name=:last_name, "
                 "started_at=if_not_exists(started_at, :now), best_days=if_not_exists(best_days, :zero), "
                 "total_completed_days=if_not_exists(total_completed_days, :zero), "
-                "completed_streaks=if_not_exists(completed_streaks, :zero), updated_at=:now"
+                "completed_streaks=if_not_exists(completed_streaks, :zero), "
+                "setday_used=if_not_exists(setday_used, :zero), updated_at=:now"
             ),
             ExpressionAttributeValues=values,
         )
@@ -166,13 +168,17 @@ class DynamoStore:
         current = self.stats(chat_id, user_id, now)
         if current is None:
             raise ValueError("user is not registered")
+        item = self.get_user_item(chat_id, user_id)
+        if int(item.get("setday_used", 0)) == 1:
+            raise PermissionError("setday can be used only once")
         started_at = now - timedelta(days=days)
         self.table.update_item(
             Key={"PK": self.chat_pk(chat_id), "SK": self.user_sk(user_id)},
-            UpdateExpression="SET started_at=:started_at, best_days=:best_days, updated_at=:updated_at",
+            UpdateExpression="SET started_at=:started_at, best_days=:best_days, setday_used=:used, updated_at=:updated_at",
             ExpressionAttributeValues={
                 ":started_at": iso(started_at),
                 ":best_days": max(current.best_days, days),
+                ":used": 1,
                 ":updated_at": iso(now),
             },
         )

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS streaks (
     best_days INTEGER NOT NULL DEFAULT 0,
     total_completed_days INTEGER NOT NULL DEFAULT 0,
     completed_streaks INTEGER NOT NULL DEFAULT 0,
+    setday_used INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (chat_id, user_id)
 );
@@ -116,3 +117,6 @@ class Database:
     def init(self) -> None:
         with sqlite3.connect(self.path) as conn:
             conn.executescript(SCHEMA)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(streaks)")}
+            if "setday_used" not in columns:
+                conn.execute("ALTER TABLE streaks ADD COLUMN setday_used INTEGER NOT NULL DEFAULT 0")

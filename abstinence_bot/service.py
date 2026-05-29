@@ -127,10 +127,18 @@ class AbstinenceService:
         current = self.stats(chat_id, user_id, now)
         best_days = max(current.best_days if current else 0, days)
         with self.db.connect() as conn:
+            row = conn.execute(
+                "SELECT setday_used FROM streaks WHERE chat_id=? AND user_id=?",
+                (chat_id, user_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError("user is not registered")
+            if row["setday_used"]:
+                raise PermissionError("setday can be used only once")
             conn.execute(
                 """
                 UPDATE streaks
-                SET started_at=?, best_days=?, updated_at=?
+                SET started_at=?, best_days=?, setday_used=1, updated_at=?
                 WHERE chat_id=? AND user_id=?
                 """,
                 (iso(started_at), best_days, iso(now), chat_id, user_id),
