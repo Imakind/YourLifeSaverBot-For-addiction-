@@ -1,0 +1,20 @@
+services:
+  - type: worker
+    name: your-life-saver-bot
+    runtime: docker
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: BOT_DB_PATH
+        value: /data/bot.sqlite3
+      - key: BOT_TZ
+        value: Asia/Qyzylorda
+      - key: MORNING_NOTIFY
+        value: "09:00"
+      - key: EVENING_NOTIFY
+        value: "21:00"
+    disk:
+      name: bot-data
+      mountPath: /data
+      sizeGB: 1
