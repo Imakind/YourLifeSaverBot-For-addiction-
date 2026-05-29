@@ -87,7 +87,14 @@ pytest
 
 ## Деплой
 
-Проект можно запускать как long-running worker. Для Render подготовлен `render.yaml`.
+Есть два режима деплоя:
+
+- long-running worker: локально, VM, Docker Compose;
+- AWS Serverless: API Gateway + Lambda + DynamoDB + EventBridge.
+
+Для AWS см. [AWS_SERVERLESS.md](AWS_SERVERLESS.md).
+
+Проект также можно запускать как long-running worker. Для Render подготовлен `render.yaml`.
 
 Обязательный секрет на хостинге:
 

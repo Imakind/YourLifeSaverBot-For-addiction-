@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Telegram addiction support bot.
+
+Parameters:
+  BotToken:
+    Type: String
+    NoEcho: true
+  WebhookSecret:
+    Type: String
+    NoEcho: true
+  BotTableName:
+    Type: String
+    Default: YourLifeSaverBot
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 20
+    MemorySize: 256
+    Environment:
+      Variables:
+        BOT_TOKEN: !Ref BotToken
+        WEBHOOK_SECRET: !Ref WebhookSecret
+        TABLE_NAME: !Ref BotTableName
+
+Resources:
+  BotTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref BotTableName
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  TelegramApi:
+    Type: AWS::Serverless::HttpApi
+
+  WebhookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: abstinence_bot.lambda_app.webhook_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BotTableName
+      Events:
+        TelegramWebhook:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref TelegramApi
+            Path: /telegram
+            Method: POST
+
+  ScheduleFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: abstinence_bot.lambda_app.schedule_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BotTableName
+      Events:
+        MorningCheckIn:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 4 * * ? *)
+            Input: '{"kind":"morning"}'
+        EveningCheckIn:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 16 * * ? *)
+            Input: '{"kind":"evening"}'
+        MilestoneScan:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 hour)
+            Input: '{"kind":"milestones"}'
+
+Outputs:
+  TelegramWebhookUrl:
+    Description: URL to pass to Telegram setWebhook.
+    Value: !Sub "https://${TelegramApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/telegram"
+  DynamoTableName:
+    Description: DynamoDB table used by the bot.
+    Value: !Ref BotTableName
