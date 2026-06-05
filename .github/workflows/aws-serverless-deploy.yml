@@ -20,6 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      AWS_REGION_VALUE: ${{ inputs.aws_region || 'us-east-1' }}
+      STACK_NAME_VALUE: ${{ inputs.stack_name || 'your-life-saver-bot' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +40,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ inputs.aws_region }}
+          aws-region: ${{ env.AWS_REGION_VALUE }}
 
       - name: Validate template
         run: sam validate --lint
@@ -48,8 +51,8 @@ jobs:
       - name: Deploy
         run: >
           sam deploy
-          --stack-name "${{ inputs.stack_name }}"
-          --region "${{ inputs.aws_region }}"
+          --stack-name "${{ env.STACK_NAME_VALUE }}"
+          --region "${{ env.AWS_REGION_VALUE }}"
           --resolve-s3
           --no-confirm-changeset
           --no-fail-on-empty-changeset
@@ -62,8 +65,8 @@ jobs:
         id: outputs
         run: |
           WEBHOOK_URL=$(aws cloudformation describe-stacks \
-            --stack-name "${{ inputs.stack_name }}" \
-            --region "${{ inputs.aws_region }}" \
+            --stack-name "${{ env.STACK_NAME_VALUE }}" \
+            --region "${{ env.AWS_REGION_VALUE }}" \
             --query "Stacks[0].Outputs[?OutputKey=='TelegramWebhookUrl'].OutputValue" \
             --output text)
           echo "webhook_url=$WEBHOOK_URL" >> "$GITHUB_OUTPUT"
