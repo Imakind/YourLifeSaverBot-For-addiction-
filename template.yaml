@@ -71,16 +71,6 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref BotTableName
       Events:
-        MorningCheckIn:
-          Type: Schedule
-          Properties:
-            Schedule: cron(0 4 * * ? *)
-            Input: '{"kind":"morning"}'
-        EveningCheckIn:
-          Type: Schedule
-          Properties:
-            Schedule: cron(0 16 * * ? *)
-            Input: '{"kind":"evening"}'
         MilestoneScan:
           Type: Schedule
           Properties:

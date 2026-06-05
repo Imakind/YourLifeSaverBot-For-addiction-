@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, time
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from time import monotonic
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonCommands, Update
 from telegram.constants import ChatType
@@ -23,6 +22,8 @@ from .service import AbstinenceService, mention_name, utcnow
 from .texts import MILESTONES, SOS_STEPS, random_fact, random_quote
 
 LOGGER = logging.getLogger(__name__)
+COMMAND_COOLDOWN_SECONDS = 2.0
+CALLBACK_COOLDOWN_SECONDS = 1.0
 
 
 def load_env_file(path: str = ".env") -> None:
@@ -40,16 +41,55 @@ def load_env_file(path: str = ".env") -> None:
             os.environ[key] = value
 
 
-def parse_hhmm(value: str, fallback: time) -> time:
-    try:
-        hour, minute = value.split(":", 1)
-        return time(hour=int(hour), minute=int(minute))
-    except Exception:
-        return fallback
-
-
 def service(context: ContextTypes.DEFAULT_TYPE) -> AbstinenceService:
     return context.application.bot_data["service"]
+
+
+def is_rate_limited(context: ContextTypes.DEFAULT_TYPE, kind: str, chat_id: int, user_id: int, action: str, cooldown: float) -> bool:
+    now = monotonic()
+    limits = context.application.bot_data.setdefault("rate_limits", {})
+    key = (kind, chat_id, user_id, action)
+    last = limits.get(key)
+    if last is not None and now - last < cooldown:
+        return True
+    limits[key] = now
+    if len(limits) > 2000:
+        stale_before = now - 60
+        for item_key, item_last in list(limits.items()):
+            if item_last < stale_before:
+                limits.pop(item_key, None)
+    return False
+
+
+async def delete_user_command(update: Update) -> None:
+    message = update.effective_message
+    if not message:
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+def command_guard(handler):
+    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.effective_chat or not update.effective_user or not update.effective_message:
+            return
+        text = update.effective_message.text or ""
+        command = text.split(maxsplit=1)[0].split("@", 1)[0].lstrip("/").lower()
+        await delete_user_command(update)
+        if is_rate_limited(context, "command", update.effective_chat.id, update.effective_user.id, command, COMMAND_COOLDOWN_SECONDS):
+            return
+        await handler(update, context)
+
+    return wrapped
+
+
+async def edit_or_reply(message, text: str, reply_markup=None) -> None:
+    try:
+        await message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        await message.reply_text(text, reply_markup=reply_markup)
 
 
 def user_label(update: Update) -> str:
@@ -248,7 +288,7 @@ async def partner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not found:
         await update.effective_message.reply_text("Свободный напарник не найден. Попроси участника написать /start и /partner.")
         return
-    await update.effective_message.reply_text(f"Твой напарник: {mention_name(found)}. Договоритесь о коротком ежедневном чек-ине.")
+    await update.effective_message.reply_text(f"Твой напарник: {mention_name(found)}. Договоритесь о коротком ежедневном отчете.")
 
 
 async def sos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -340,53 +380,47 @@ async def moderate_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
-    if not query.message:
+    if not query or not query.message:
         return
+    chat_id = query.message.chat_id
+    if is_rate_limited(context, "callback", chat_id, query.from_user.id, query.data or "", CALLBACK_COOLDOWN_SECONDS):
+        await query.answer("Подожди секунду.")
+        return
+    await query.answer()
     if query.data == "sos":
-        await query.message.reply_text("SOS-протокол на дофаминовом пике:\n" + "\n".join(SOS_STEPS))
+        await edit_or_reply(query.message, "SOS-протокол на дофаминовом пике:\n" + "\n".join(SOS_STEPS), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Я выдержал 10 минут", callback_data="survived_10")], [InlineKeyboardButton("Дай еще совет", callback_data="advice")]]))
     elif query.data == "status":
         stats = service(context).stats(query.message.chat_id, query.from_user.id)
         if stats is None:
-            await query.message.reply_text("Сначала напиши /start.")
+            await edit_or_reply(query.message, "Сначала напиши /start.", reply_markup=main_menu_keyboard())
         else:
-            await query.message.reply_text(format_status(stats), reply_markup=main_menu_keyboard())
+            await edit_or_reply(query.message, format_status(stats), reply_markup=main_menu_keyboard())
     elif query.data == "history":
         svc = service(context)
         svc.upsert_user(query.from_user.id, query.from_user.username, query.from_user.first_name, query.from_user.last_name)
         svc.join_chat(query.message.chat_id, query.from_user.id)
-        await query.message.reply_text(format_history(svc, query.message.chat_id, query.from_user.id), reply_markup=main_menu_keyboard())
+        await edit_or_reply(query.message, format_history(svc, query.message.chat_id, query.from_user.id), reply_markup=main_menu_keyboard())
     elif query.data == "top":
-        await query.message.reply_text(format_top(service(context), query.message.chat_id), reply_markup=main_menu_keyboard())
+        await edit_or_reply(query.message, format_top(service(context), query.message.chat_id), reply_markup=main_menu_keyboard())
     elif query.data == "partner":
         svc = service(context)
         svc.upsert_user(query.from_user.id, query.from_user.username, query.from_user.first_name, query.from_user.last_name)
         svc.join_chat(query.message.chat_id, query.from_user.id)
         found = svc.find_partner(query.message.chat_id, query.from_user.id)
         if not found:
-            await query.message.reply_text("Свободный напарник не найден. Попроси участника написать /start и /partner.")
+            await edit_or_reply(query.message, "Свободный напарник не найден. Попроси участника написать /start и /partner.", reply_markup=main_menu_keyboard())
         else:
-            await query.message.reply_text(f"Твой напарник: {mention_name(found)}. Договоритесь о коротком ежедневном чек-ине.")
+            await edit_or_reply(query.message, f"Твой напарник: {mention_name(found)}. Договоритесь о коротком ежедневном отчете.", reply_markup=main_menu_keyboard())
     elif query.data == "advice":
-        await query.message.reply_text(service(context).random_advice(query.message.chat_id))
+        await edit_or_reply(query.message, service(context).random_advice(query.message.chat_id), reply_markup=main_menu_keyboard())
     elif query.data == "fact":
-        await query.message.reply_text(random_fact())
+        await edit_or_reply(query.message, random_fact(), reply_markup=main_menu_keyboard())
     elif query.data == "survived_10":
         svc = service(context)
         svc.upsert_user(query.from_user.id, query.from_user.username, query.from_user.first_name, query.from_user.last_name)
         svc.join_chat(query.message.chat_id, query.from_user.id)
         day = svc.add_note(query.message.chat_id, query.from_user.id, "SOS: выдержал 10 минут")
-        await query.message.reply_text(f"Отмечено. День {day}: пик пережит.")
-
-
-async def daily_message(context: ContextTypes.DEFAULT_TYPE) -> None:
-    kind = context.job.data["kind"]
-    svc = service(context)
-    quote_or_fact = random_quote() if kind == "morning" else random_fact()
-    prefix = "Утренний чек-ин" if kind == "morning" else "Вечерний чек-ин"
-    chat_ids = sorted({row["chat_id"] for row in svc.active_tracking_rows()})
-    for chat_id in chat_ids:
-        await context.bot.send_message(chat_id=chat_id, text=f"{prefix}:\n{quote_or_fact}\n/status - проверить прогресс")
+        await edit_or_reply(query.message, f"Отмечено. День {day}: пик пережит.")
 
 
 async def milestone_scan(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -404,7 +438,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def setup_bot_menu(app: Application) -> None:
     commands = [
-        BotCommand("menu", "главное меню"),
+        BotCommand("start", "зарегистрироваться"),
         BotCommand("status", "streak, рекорд, среднее"),
         BotCommand("setday", "выставить текущий день"),
         BotCommand("history", "история срывов и заметок"),
@@ -419,34 +453,30 @@ async def setup_bot_menu(app: Application) -> None:
     await app.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
 
-def build_application(token: str, db_path: str, tz_name: str, morning: str, evening: str) -> Application:
+def build_application(token: str, db_path: str) -> Application:
     db = Database(db_path)
     app = Application.builder().token(token).post_init(setup_bot_menu).build()
     app.bot_data["service"] = AbstinenceService(db)
 
-    app.add_handler(CommandHandler(["start", "join"], start))
-    app.add_handler(CommandHandler("menu", menu))
-    app.add_handler(CommandHandler("status", status))
-    app.add_handler(CommandHandler("setday", setday))
-    app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(CommandHandler("note", note))
-    app.add_handler(CommandHandler("history", history))
-    app.add_handler(CommandHandler("top", top))
-    app.add_handler(CommandHandler("partner", partner))
-    app.add_handler(CommandHandler("sos", sos))
-    app.add_handler(CommandHandler("advice", advice))
-    app.add_handler(CommandHandler("fact", fact))
-    app.add_handler(CommandHandler("quote", quote))
-    app.add_handler(CommandHandler("report", report))
-    app.add_handler(CommandHandler("warn", warn))
-    app.add_handler(CommandHandler("delete", delete))
+    app.add_handler(CommandHandler(["start", "join"], command_guard(start)))
+    app.add_handler(CommandHandler("status", command_guard(status)))
+    app.add_handler(CommandHandler("setday", command_guard(setday)))
+    app.add_handler(CommandHandler("reset", command_guard(reset)))
+    app.add_handler(CommandHandler("note", command_guard(note)))
+    app.add_handler(CommandHandler("history", command_guard(history)))
+    app.add_handler(CommandHandler("top", command_guard(top)))
+    app.add_handler(CommandHandler("partner", command_guard(partner)))
+    app.add_handler(CommandHandler("sos", command_guard(sos)))
+    app.add_handler(CommandHandler("advice", command_guard(advice)))
+    app.add_handler(CommandHandler("fact", command_guard(fact)))
+    app.add_handler(CommandHandler("quote", command_guard(quote)))
+    app.add_handler(CommandHandler("report", command_guard(report)))
+    app.add_handler(CommandHandler("warn", command_guard(warn)))
+    app.add_handler(CommandHandler("delete", command_guard(delete)))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, moderate_message))
     app.add_error_handler(error_handler)
 
-    tz = ZoneInfo(tz_name)
-    app.job_queue.run_daily(daily_message, parse_hhmm(morning, time(9, 0, tzinfo=tz)).replace(tzinfo=tz), data={"kind": "morning"})
-    app.job_queue.run_daily(daily_message, parse_hhmm(evening, time(21, 0, tzinfo=tz)).replace(tzinfo=tz), data={"kind": "evening"})
     app.job_queue.run_repeating(milestone_scan, interval=3600, first=30)
     return app
 
@@ -458,10 +488,7 @@ def main() -> None:
     if not token:
         raise SystemExit("BOT_TOKEN is required")
     db_path = os.getenv("BOT_DB_PATH", "bot.sqlite3")
-    tz_name = os.getenv("BOT_TZ", "Asia/Qyzylorda")
-    morning = os.getenv("MORNING_NOTIFY", "09:00")
-    evening = os.getenv("EVENING_NOTIFY", "21:00")
-    app = build_application(token, db_path, tz_name, morning, evening)
+    app = build_application(token, db_path)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

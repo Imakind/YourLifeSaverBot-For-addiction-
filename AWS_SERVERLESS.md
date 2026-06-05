@@ -110,12 +110,11 @@ aws dynamodb describe-table --table-name YourLifeSaverBot
 
 ```text
 /start
-/menu
 /status
 ```
 
 ## Важные ограничения
 
-- EventBridge cron в `template.yaml` задан в UTC: `04:00 UTC` = `09:00 Asia/Qyzylorda`, `16:00 UTC` = `21:00 Asia/Qyzylorda`.
+- EventBridge cron в `template.yaml` используется для milestone-сканирования.
 - DynamoDB настроен на provisioned `1 RCU / 1 WCU`, чтобы держаться ближе к free tier. Для активного большого чата может потребоваться увеличить capacity.
 - Админские команды частично отличаются от polling-версии: serverless handler сохраняет жалобы и пытается удалять триггерные сообщения, если у бота есть права.

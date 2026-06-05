@@ -40,6 +40,21 @@ class TelegramClient:
             payload["parse_mode"] = parse_mode
         return self.call("sendMessage", payload)
 
+    def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        reply_markup: dict[str, Any] | None = None,
+        parse_mode: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": text[:4096]}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        return self.call("editMessageText", payload)
+
     def answer_callback_query(self, callback_query_id: str, text: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {"callback_query_id": callback_query_id}
         if text:
@@ -48,6 +63,12 @@ class TelegramClient:
 
     def delete_message(self, chat_id: int, message_id: int) -> dict[str, Any]:
         return self.call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+
+    def set_my_commands(self, commands: list[dict[str, str]]) -> dict[str, Any]:
+        return self.call("setMyCommands", {"commands": commands})
+
+    def set_chat_menu_button(self) -> dict[str, Any]:
+        return self.call("setChatMenuButton", {"menu_button": {"type": "commands"}})
 
     def set_webhook(self, webhook_url: str, secret_token: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {

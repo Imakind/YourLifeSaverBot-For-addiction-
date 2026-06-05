@@ -1,6 +1,9 @@
 name: Deploy AWS Serverless
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       aws_region:

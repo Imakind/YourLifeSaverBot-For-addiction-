@@ -3,11 +3,17 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 from typing import Any
 
 from .dynamo_store import DynamoStore, mention_name, utcnow
 from .telegram_api import TelegramClient
 from .texts import MILESTONES, SOS_STEPS, TRIGGER_WORDS, random_fact, random_quote
+
+
+COMMAND_COOLDOWN_SECONDS = 2.0
+CALLBACK_COOLDOWN_SECONDS = 1.0
+_RATE_LIMITS: dict[tuple[str, int, int, str], float] = {}
 
 
 def response(status_code: int = 200, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -106,11 +112,48 @@ def contains_trigger(text: str) -> bool:
     return any(word in lower for word in TRIGGER_WORDS)
 
 
+def is_rate_limited(kind: str, chat_id: int, user_id: int, action: str, cooldown: float) -> bool:
+    now = time.monotonic()
+    key = (kind, chat_id, user_id, action)
+    last = _RATE_LIMITS.get(key)
+    if last is not None and now - last < cooldown:
+        return True
+    _RATE_LIMITS[key] = now
+    if len(_RATE_LIMITS) > 2000:
+        stale_before = now - 60
+        for item_key, item_last in list(_RATE_LIMITS.items()):
+            if item_last < stale_before:
+                _RATE_LIMITS.pop(item_key, None)
+    return False
+
+
+def delete_user_command(tg: TelegramClient, chat_id: int, message: dict[str, Any]) -> None:
+    try:
+        tg.delete_message(chat_id, int(message["message_id"]))
+    except Exception:
+        pass
+
+
+def edit_or_send(
+    tg: TelegramClient,
+    chat_id: int,
+    message_id: int | None,
+    text: str,
+    reply_markup: dict[str, Any] | None = None,
+) -> None:
+    if message_id is not None:
+        try:
+            tg.edit_message_text(chat_id, message_id, text, reply_markup)
+            return
+        except Exception:
+            pass
+    tg.send_message(chat_id, text, reply_markup)
+
+
 def start_text() -> str:
     return (
         "Бот трекинга воздержания для чата.\n\n"
-        "Главное:\n"
-        "/menu - меню\n"
+        "Команды:\n"
         "/status - streak, рекорд, среднее\n"
         "/setday N - выставить текущий день, например /setday 12\n"
         "/history - срывы и заметки\n"
@@ -127,12 +170,13 @@ def handle_command(store: DynamoStore, tg: TelegramClient, message: dict[str, An
     user = normalize_user(message["from"])
     text = message.get("text", "")
     command, arg = command_parts(text)
+    delete_user_command(tg, chat_id, message)
+    if is_rate_limited("command", chat_id, user["id"], command, COMMAND_COOLDOWN_SECONDS):
+        return
     register(store, chat_id, user)
 
     if command in {"start", "join"}:
         tg.send_message(chat_id, start_text(), menu_keyboard())
-    elif command == "menu":
-        tg.send_message(chat_id, "Меню бота:", menu_keyboard())
     elif command == "status":
         stats = store.stats(chat_id, user["id"])
         tg.send_message(chat_id, format_status(stats), menu_keyboard())
@@ -179,7 +223,7 @@ def handle_command(store: DynamoStore, tg: TelegramClient, message: dict[str, An
         if not found:
             tg.send_message(chat_id, "Свободный напарник не найден. Попроси участника написать /start и /partner.")
         else:
-            tg.send_message(chat_id, f"Твой напарник: {mention_name(found)}. Договоритесь о коротком ежедневном чек-ине.")
+            tg.send_message(chat_id, f"Твой напарник: {mention_name(found)}. Договоритесь о коротком ежедневном отчете.")
     elif command == "sos":
         tg.send_message(chat_id, "SOS-протокол на дофаминовом пике:\n" + "\n".join(SOS_STEPS), sos_keyboard())
     elif command == "advice":
@@ -214,35 +258,39 @@ def handle_plain_text(store: DynamoStore, tg: TelegramClient, message: dict[str,
 
 
 def handle_callback(store: DynamoStore, tg: TelegramClient, callback: dict[str, Any]) -> None:
-    tg.answer_callback_query(callback["id"])
     data = callback.get("data", "")
     message = callback.get("message") or {}
     chat_id = int(message["chat"]["id"])
+    message_id = int(message["message_id"]) if message.get("message_id") is not None else None
     user = normalize_user(callback["from"])
+    if is_rate_limited("callback", chat_id, user["id"], data, CALLBACK_COOLDOWN_SECONDS):
+        tg.answer_callback_query(callback["id"], "Подожди секунду.")
+        return
+    tg.answer_callback_query(callback["id"])
     register(store, chat_id, user)
 
     if data == "status":
         stats = store.stats(chat_id, user["id"])
-        tg.send_message(chat_id, format_status(stats), menu_keyboard())
+        edit_or_send(tg, chat_id, message_id, format_status(stats), menu_keyboard())
     elif data == "history":
-        tg.send_message(chat_id, format_history(store, chat_id, user["id"]), menu_keyboard())
+        edit_or_send(tg, chat_id, message_id, format_history(store, chat_id, user["id"]), menu_keyboard())
     elif data == "top":
-        tg.send_message(chat_id, format_top(store, chat_id), menu_keyboard())
+        edit_or_send(tg, chat_id, message_id, format_top(store, chat_id), menu_keyboard())
     elif data == "partner":
         found = store.find_partner(chat_id, user["id"])
         if not found:
-            tg.send_message(chat_id, "Свободный напарник не найден. Попроси участника написать /start и /partner.")
+            edit_or_send(tg, chat_id, message_id, "Свободный напарник не найден. Попроси участника написать /start и /partner.", menu_keyboard())
         else:
-            tg.send_message(chat_id, f"Твой напарник: {mention_name(found)}. Договоритесь о коротком ежедневном чек-ине.")
+            edit_or_send(tg, chat_id, message_id, f"Твой напарник: {mention_name(found)}. Договоритесь о коротком ежедневном отчете.", menu_keyboard())
     elif data == "sos":
-        tg.send_message(chat_id, "SOS-протокол на дофаминовом пике:\n" + "\n".join(SOS_STEPS), sos_keyboard())
+        edit_or_send(tg, chat_id, message_id, "SOS-протокол на дофаминовом пике:\n" + "\n".join(SOS_STEPS), sos_keyboard())
     elif data == "advice":
-        tg.send_message(chat_id, store.random_advice(chat_id))
+        edit_or_send(tg, chat_id, message_id, store.random_advice(chat_id), menu_keyboard())
     elif data == "fact":
-        tg.send_message(chat_id, random_fact())
+        edit_or_send(tg, chat_id, message_id, random_fact(), menu_keyboard())
     elif data == "survived_10":
         day = store.add_note(chat_id, user["id"], "SOS: выдержал 10 минут")
-        tg.send_message(chat_id, f"Отмечено. День {day}: пик пережит.")
+        edit_or_send(tg, chat_id, message_id, f"Отмечено. День {day}: пик пережит.", sos_keyboard())
 
 
 def parse_body(event: dict[str, Any]) -> dict[str, Any]:
@@ -285,11 +333,6 @@ def schedule_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     kind = event.get("kind", "milestones")
 
     if kind in {"morning", "evening"}:
-        prefix = "Утренний чек-ин" if kind == "morning" else "Вечерний чек-ин"
-        chat_ids = sorted({int(item["chat_id"]) for item in store.active_tracking_rows()})
-        for chat_id in chat_ids:
-            text = random_quote() if kind == "morning" else random_fact()
-            tg.send_message(chat_id, f"{prefix}:\n{text}\n/status - проверить прогресс")
         return response()
 
     for row in store.due_milestones(utcnow(), set(MILESTONES)):
@@ -302,5 +345,21 @@ def schedule_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
 def setup_webhook_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     api_url = os.environ["WEBHOOK_URL"]
-    result = TelegramClient(os.environ["BOT_TOKEN"]).set_webhook(api_url, os.getenv("WEBHOOK_SECRET"))
+    tg = TelegramClient(os.environ["BOT_TOKEN"])
+    tg.set_my_commands(
+        [
+            {"command": "start", "description": "зарегистрироваться"},
+            {"command": "status", "description": "streak, рекорд, среднее"},
+            {"command": "setday", "description": "выставить текущий день"},
+            {"command": "history", "description": "история срывов и заметок"},
+            {"command": "note", "description": "заметка на текущий день"},
+            {"command": "reset", "description": "сброс streak с причиной"},
+            {"command": "sos", "description": "SOS-протокол"},
+            {"command": "advice", "description": "получить или добавить совет"},
+            {"command": "top", "description": "топ участников"},
+            {"command": "partner", "description": "напарник"},
+        ]
+    )
+    tg.set_chat_menu_button()
+    result = tg.set_webhook(api_url, os.getenv("WEBHOOK_SECRET"))
     return response(200, result)

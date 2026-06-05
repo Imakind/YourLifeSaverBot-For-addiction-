@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import abstinence_bot.lambda_app as lambda_app
 from abstinence_bot.lambda_app import handle_callback, handle_command
 
 
@@ -56,6 +57,8 @@ class FakeTelegram:
     def __init__(self) -> None:
         self.messages = []
         self.callbacks = []
+        self.deleted = []
+        self.edits = []
 
     def send_message(self, chat_id, text, reply_markup=None, parse_mode=None):
         self.messages.append(
@@ -64,6 +67,26 @@ class FakeTelegram:
 
     def answer_callback_query(self, callback_query_id, text=None):
         self.callbacks.append((callback_query_id, text))
+
+    def delete_message(self, chat_id, message_id):
+        self.deleted.append((chat_id, message_id))
+
+    def edit_message_text(self, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+        self.edits.append(
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "reply_markup": reply_markup,
+                "parse_mode": parse_mode,
+            }
+        )
+
+
+def setup_function():
+    lambda_app._RATE_LIMITS.clear()
+    lambda_app.COMMAND_COOLDOWN_SECONDS = 0
+    lambda_app.CALLBACK_COOLDOWN_SECONDS = 0
 
 
 def message(text: str):
@@ -84,6 +107,7 @@ def test_start_command_sends_menu():
     assert store.users[0][0] == 100
     assert "Бот трекинга" in tg.messages[0]["text"]
     assert tg.messages[0]["reply_markup"]["inline_keyboard"]
+    assert tg.deleted == [(100, 10)]
 
 
 def test_advice_command_saves_user_advice():
@@ -131,4 +155,34 @@ def test_history_callback_answers_and_sends_history():
     handle_callback(store, tg, callback)
 
     assert tg.callbacks == [("cb1", None)]
-    assert "История срывов" in tg.messages[0]["text"]
+    assert "История срывов" in tg.edits[0]["text"]
+
+
+def test_command_spam_is_dropped_after_deleting_message():
+    lambda_app.COMMAND_COOLDOWN_SECONDS = 10
+    store = FakeStore()
+    tg = FakeTelegram()
+
+    handle_command(store, tg, message("/status"))
+    handle_command(store, tg, message("/status"))
+
+    assert len(tg.messages) == 1
+    assert tg.deleted == [(100, 10), (100, 10)]
+
+
+def test_callback_spam_answers_without_editing_again():
+    lambda_app.CALLBACK_COOLDOWN_SECONDS = 10
+    store = FakeStore()
+    tg = FakeTelegram()
+    callback = {
+        "id": "cb1",
+        "data": "status",
+        "from": {"id": 1, "username": "alice", "first_name": "Alice"},
+        "message": {"chat": {"id": 100}, "message_id": 10},
+    }
+
+    handle_callback(store, tg, callback)
+    handle_callback(store, tg, {**callback, "id": "cb2"})
+
+    assert len(tg.edits) == 1
+    assert tg.callbacks == [("cb1", None), ("cb2", "Подожди секунду.")]

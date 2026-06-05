@@ -25,9 +25,6 @@ cd YourLifeSaverBot-For-addiction-
 
 ```env
 BOT_TOKEN=your_telegram_bot_token
-BOT_TZ=Asia/Qyzylorda
-MORNING_NOTIFY=09:00
-EVENING_NOTIFY=21:00
 ```
 
 4. Запустить:

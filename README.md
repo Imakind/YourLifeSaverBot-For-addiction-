@@ -22,7 +22,6 @@ pip install -r requirements.txt
 ```powershell
 $env:BOT_TOKEN="your_telegram_bot_token"
 $env:BOT_DB_PATH="bot.sqlite3"
-$env:BOT_TZ="Asia/Qyzylorda"
 ```
 
 Также можно создать файл `.env` в корне проекта:
@@ -30,9 +29,6 @@ $env:BOT_TZ="Asia/Qyzylorda"
 ```env
 BOT_TOKEN=your_telegram_bot_token
 BOT_DB_PATH=bot.sqlite3
-BOT_TZ=Asia/Qyzylorda
-MORNING_NOTIFY=09:00
-EVENING_NOTIFY=21:00
 ```
 
 4. Запустить:
@@ -44,7 +40,6 @@ python -m abstinence_bot.bot
 ## Команды
 
 - `/start` или `/join` - регистрация участника в чате.
-- `/menu` - главное inline-меню бота.
 - `/status` - текущий streak, рекорд, среднее.
 - `/setday N` - один раз выставить текущий день при первом входе, например `/setday 12`.
 - `/reset причина` - сброс счётчика с причиной срыва.
@@ -76,8 +71,6 @@ python -m abstinence_bot.bot
 
 ## Уведомления
 
-- Утро: `MORNING_NOTIFY`, по умолчанию `09:00`.
-- Вечер: `EVENING_NOTIFY`, по умолчанию `21:00`.
 - Milestones: 7, 30, 90, 180 дней.
 
 ## Проверка
